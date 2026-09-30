@@ -8,6 +8,7 @@ import { setSetting } from "@/server/db";
 import { emit } from "@/server/bus";
 import { computerInfo } from "@/server/snapshot";
 import { models, resetModels, saveApiKey } from "@/server/agent/client";
+import { disconnectChatGPT, startChatGPTSignIn } from "@/server/agent/chatgpt";
 import { saveOpenRouterKey } from "@/server/agent/openrouter";
 import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
@@ -188,6 +189,20 @@ export async function setOpenAIKey(key: string): Promise<string | null> {
   emit({ type: "computer", data: computerInfo() });
   void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
   return null;
+}
+
+/** Start the official Sign in with ChatGPT flow for ChatGPT-plan usage. */
+export async function signInChatGPT(reconsent = false): Promise<{ url?: string; error?: string }> {
+  try {
+    return { url: await startChatGPTSignIn(reconsent) };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** Revoke the current ChatGPT-plan session and remove its tokens from this computer. */
+export async function signOutChatGPT(): Promise<string | null> {
+  return disconnectChatGPT();
 }
 
 /** Paste an OpenRouter key in Settings to add open models (empty removes it). */
