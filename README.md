@@ -69,6 +69,7 @@ In development everything is stored in `.data/` in the project folder.
 - Routines and triggers only run while the app is open. A routine that comes due while your Mac is asleep gets skipped, and so do trigger events that arrive then.
 - Most triggers fire within seconds. Ones with an Interval setting, like Gmail's, can take up to that many minutes.
 - ChatGPT-plan inference uses OpenAI's [Sign in with ChatGPT](https://developers.openai.com/siwc/token-sharing-open-source) flow. In the current preview it is stateless, so Open Dot keeps the chat context locally and sends the needed history with each request. Native OpenAI computer use and voice calls still need an OpenAI API key.
+- The ChatGPT model picker starts from the signed-in account catalog and also keeps the current public flagship aliases visible because that catalog can lag during model rollouts. The Responses request is the final availability check for the selected account/workspace.
 - Open models don't get OpenAI's computer tool. They click and type by the text on the page instead, which works on most sites but not on things drawn on a canvas.
 - For bookings and purchases, the site needs a card saved in your account there, or you take over for the payment step.
 - Open Dot isn't affiliated with OpenAI.

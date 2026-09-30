@@ -285,6 +285,17 @@ export async function setDefaultModel(model: string | null) {
   emit({ type: "computer", data: computerInfo() });
 }
 
+export async function refreshModels(): Promise<string | null> {
+  try {
+    resetModels();
+    await models();
+    emit({ type: "computer", data: computerInfo() });
+    return null;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 // ---------- Composio For You (the user's apps) ----------
 
 /** Start signing in to Composio. Returns the Composio sign-in URL to open, or nothing if already signed in. */

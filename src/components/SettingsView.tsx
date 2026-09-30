@@ -3,7 +3,7 @@
 import { useState, useSyncExternalStore, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, KeyRound, Lock, LogOut, Plus, RefreshCw } from "lucide-react";
-import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInChatGPT, signInComposio, signOutChatGPT, signOutComposio } from "@/app/actions";
+import { connectApp, deletePassword, refreshApps, refreshModels, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInChatGPT, signInComposio, signOutChatGPT, signOutComposio } from "@/app/actions";
 import { useStore } from "@/lib/store";
 import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
@@ -20,6 +20,7 @@ export default function SettingsView() {
   const [, force] = useState(0);
   const [form, setForm] = useState({ site: "", username: "", password: "" });
   const [error, setError] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   return (
@@ -142,9 +143,19 @@ export default function SettingsView() {
               <div key={String(k)} className="flex items-center gap-4 px-4 py-2.5">
                 <dt className="eyebrow w-36 shrink-0">{k}</dt>
                 <dd className={`flex-1 text-body-sm ${ok ? "" : "text-warning"}`}>{v}</dd>
+                {k === "Models available" && (
+                  <button
+                    className="btn-quiet h-7 px-2.5 text-[12px]"
+                    disabled={pending}
+                    onClick={() => start(async () => setModelError(await refreshModels()))}
+                  >
+                    <RefreshCw className={`size-3.5 ${pending ? "animate-spin" : ""}`} strokeWidth={1.75} /> Refresh
+                  </button>
+                )}
               </div>
             ))}
           </dl>
+          {modelError && <p className="mt-2 text-caption text-destructive">{modelError}</p>}
         </Section>
       </div>
     </div>

@@ -18,6 +18,10 @@ const RESOURCE = "https://api.openai.com/v1";
 const SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct";
 const SHARING_SCOPE = "chatgpt.tokens.use.direct";
 const DYNAMIC_CLIENT = "dynamic_agent_client";
+// The account catalog can lag behind direct-route availability during model rollouts.
+// Keep the current public flagship aliases visible as a compatibility overlay; the
+// Responses request remains the final entitlement check for a selected model.
+const CURRENT_PUBLIC_MODELS = ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna"] as const;
 
 type Registration = {
   clientId: string;
@@ -350,10 +354,16 @@ export async function chatGPTModels(): Promise<string[]> {
   const token = await chatGPTAccessToken();
   const res = await fetch(`${RESOURCE}/models`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`ChatGPT models: ${res.status}`);
-  const body = (await res.json()) as { models?: { slug?: string; visibility?: string }[] };
-  const ids = (body.models ?? [])
+  const body = (await res.json()) as { models?: { slug?: string; visibility?: string; display_name?: string }[] };
+  const listed = (body.models ?? [])
     .filter((m) => m.visibility === "list" && typeof m.slug === "string" && m.slug)
-    .map((m) => CHATGPT_PREFIX + m.slug!);
+    .map((m) => m.slug!);
+
+  const slugs = [
+    ...CURRENT_PUBLIC_MODELS,
+    ...listed.filter((slug) => !CURRENT_PUBLIC_MODELS.includes(slug as (typeof CURRENT_PUBLIC_MODELS)[number])),
+  ];
+  const ids = slugs.map((slug) => CHATGPT_PREFIX + slug);
   g.__dotsChatGPTModels = { at: Date.now(), ids };
   return ids;
 }
