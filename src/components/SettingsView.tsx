@@ -3,12 +3,13 @@
 import { useState, useSyncExternalStore, useTransition } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bell, KeyRound, Lock, LogOut, Plus, RefreshCw } from "lucide-react";
-import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, signInComposio, signOutComposio } from "@/app/actions";
+import { connectApp, deletePassword, refreshApps, savePassword, setCloudKey, setDefaultModel, setOpenAIKey, setOpenRouterKey, setUserProfile, signInComposio, signOutComposio } from "@/app/actions";
 import { useStore } from "@/lib/store";
 import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
 import ModelPicker from "./ModelPicker";
 import { TriggersKey } from "./Triggers";
+import { USER_PROFILE_FILE, USER_PROFILE_MAX_CHARS } from "@/lib/user-profile";
 
 const noop = () => () => {};
 const notificationPermission = () => ("Notification" in window ? Notification.permission : "unsupported");
@@ -25,7 +26,9 @@ export default function SettingsView() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="rails mx-auto min-h-full max-w-[1080px] px-4 sm:px-8 pb-16">
-        <PageHeader eyebrow="Settings" title="Settings" description="Passwords, rules that apply to every dot, notifications, and the engine behind them." />
+        <PageHeader eyebrow="Settings" title="Settings" description="Your universal profile, passwords, rules that apply to every dot, notifications, and the engine behind them." />
+
+        <UserProfile />
 
         <Section
           eyebrow="Passwords"
@@ -147,6 +150,54 @@ export default function SettingsView() {
         </Section>
       </div>
     </div>
+  );
+}
+
+function UserProfile() {
+  const saved = useStore((s) => s.userProfile);
+  const loaded = useStore((s) => s.loaded);
+  return <UserProfileEditor key={`${loaded}:${saved}`} saved={saved} />;
+}
+
+function UserProfileEditor({ saved }: { saved: string }) {
+  const [draft, setDraft] = useState(saved);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  const dirty = draft.trim() !== saved.trim();
+  const tooLong = draft.trim().length > USER_PROFILE_MAX_CHARS;
+
+  return (
+    <Section
+      id="user-profile"
+      eyebrow="You"
+      title="Universal profile"
+      description="Stable things every dot should know about you. This is shared by existing and future dots; each dot's Personality & appearance remains separate."
+    >
+      <div className="surface space-y-3 p-4">
+        <textarea
+          className="field h-auto min-h-44 resize-y py-3 leading-normal"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={"Examples:\n- Call me Sam.\n- I prefer concise, direct answers.\n- I work in product design and care about accessibility.\n- My current project is Acme."}
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-caption text-foreground/45">
+            Saved locally as <code className="font-mono">{USER_PROFILE_FILE}</code>. Don&apos;t put passwords or secrets here.
+          </span>
+          <span className={`ml-auto font-mono text-[11px] ${tooLong ? "text-destructive" : "text-foreground/40"}`}>
+            {draft.trim().length.toLocaleString()} / {USER_PROFILE_MAX_CHARS.toLocaleString()}
+          </span>
+          <button
+            className="btn-primary h-8 px-3 text-[13px]"
+            disabled={!dirty || tooLong || pending}
+            onClick={() => start(async () => setError(await setUserProfile(draft)))}
+          >
+            {pending ? "Saving…" : dirty ? "Save profile" : "Saved"}
+          </button>
+        </div>
+        {error && <p className="text-caption text-destructive">{error}</p>}
+      </div>
+    </Section>
   );
 }
 

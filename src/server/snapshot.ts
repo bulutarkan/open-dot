@@ -10,6 +10,7 @@ import { openRouterSource } from "./agent/openrouter";
 import { triggersKeySource } from "./triggers";
 import { apps, signedIn } from "./composio";
 import type { ComputerInfo, Snapshot } from "@/lib/types";
+import { readUserProfile } from "./user-profile";
 
 export function computerInfo(): ComputerInfo {
   const m = knownModels();
@@ -32,6 +33,7 @@ export function computerInfo(): ComputerInfo {
 
 export function snapshot(): Snapshot {
   return {
+    userProfile: readUserProfile(),
     dots: repo.listDots(),
     messages: [...repo.recentMessages(120), ...repo.channelMessages(300)],
     routines: repo.listRoutines(),
