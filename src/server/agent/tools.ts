@@ -7,6 +7,7 @@ import { credentialFor } from "../vault";
 import { emit } from "../bus";
 import * as composio from "../composio";
 import * as files from "../files";
+import { formatMemorySearch, searchMemory } from "../memory";
 import type { Dot, RuleDecision } from "@/lib/types";
 
 export type ToolCtx = { dot: Dot; signal: AbortSignal; depth: number };
@@ -154,9 +155,35 @@ export const TOOLS: ToolDef[] = [
   {
     name: "remember",
     label: "Remembering",
-    description: "Save a durable fact or preference about the user or their work to your memory, so you know it in future conversations.",
-    parameters: obj({ fact: str("The fact, written as a short standalone sentence") }),
-    execute: async (a, ctx) => (repo.addMemory(ctx.dot.id, s(a.fact)), "Saved to memory."),
+    description: "Save a durable fact or preference for future conversations. If a similar memory may already exist, search_memory first and update_memory instead of creating a duplicate.",
+    parameters: obj({ fact: str("The durable fact, written as a short standalone sentence") }),
+    execute: async (a, ctx) => {
+      const memory = repo.addMemory(ctx.dot.id, s(a.fact));
+      return `Saved memory [${memory.id}].`;
+    },
+  },
+  {
+    name: "search_memory",
+    label: "Searching memory",
+    description: "Search your durable memories and older chats. Use this when the user refers to something from the past, or before saving a fact that may duplicate an existing memory. Try alternate or translated keywords when needed.",
+    parameters: obj({ query: str("A short memory search query; keywords work best") }),
+    execute: async (a, ctx) =>
+      formatMemorySearch(
+        searchMemory(ctx.dot.id, s(a.query), { currentConversationId: repo.currentConversation(ctx.dot.id), memoryLimit: 8, episodeLimit: 5, fallback: false }),
+        ctx.dot.name,
+      ),
+  },
+  {
+    name: "update_memory",
+    label: "Updating memory",
+    description: "Replace or consolidate an existing durable memory after search_memory finds a stale, duplicate, or incomplete fact.",
+    parameters: obj({ memory_id: str("The memory ID to update"), fact: str("The complete replacement fact") }),
+    execute: async (a, ctx) => {
+      const current = repo.getMemory(s(a.memory_id));
+      if (!current || current.dotId !== ctx.dot.id) return `No memory ${s(a.memory_id)} belongs to this dot.`;
+      const updated = repo.updateMemory(current.id, s(a.fact));
+      return updated ? `Updated memory [${updated.id}].` : "Memory could not be updated.";
+    },
   },
   {
     name: "forget",
