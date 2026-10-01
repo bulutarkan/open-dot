@@ -11,7 +11,7 @@ OpenAI launched Dots on September 29, personal agents that keep working in the b
 - You can call it and talk. Anything you ask for on the call keeps running after you hang up, and the whole call shows up in the chat so you can carry on in text.
 - You can put it on a schedule, like a brief of your inbox and calendar every weekday at 8, and it posts each run to its own chat and sends you a notification.
 - Triggers wake a dot when something happens in your apps, like an email from your bank or a new issue on your repo, and it does what you told it to for that trigger. They're optional and need a Composio API key.
-- You can keep a universal `USER.md` profile with stable preferences and context every dot should know, while each dot keeps its own personality, memory and skills. Dots with different jobs can also pass work to each other.
+- You can keep a universal `USER.md` profile with stable preferences and context every dot should know, while each dot keeps its own personality, durable memory and skills. Each dot retrieves relevant memory and older-chat excerpts with local SQLite search instead of loading its whole history into every prompt, and dots can pass work to each other.
 - It can run code in its own workspace, either on an E2B cloud computer, in a local Docker container or in a folder on your Mac.
 
 ## Get it running on your Mac
@@ -85,10 +85,11 @@ src/server/
                        approval cards that pause and resume a run, pause and stop
   agent/tools.ts       the dot's tools and how risky each one is
   agent/review.ts      checks an action against your rules
-  agent/prompt.ts      the system prompt, rebuilt every turn from USER.md, dot instructions, rules, memory, skills and routines
-  user-profile.ts      the universal USER.md profile shared by every dot
+  agent/prompt.ts      the system prompt, rebuilt every turn from USER.md, dot instructions, rules, retrieved memory, skills and routines
   agent/chatgpt.ts     Sign in with ChatGPT, encrypted OAuth tokens, refresh and model discovery
   agent/openrouter.ts  open models through OpenRouter, which keeps no history, so the app keeps it per chat
+  user-profile.ts      the universal USER.md profile shared by every dot
+  memory.ts            local long-term retrieval over durable memories and past chats (SQLite FTS5 + ranking)
   computer/            one interface over E2B cloud computers, Docker and local folders
   computer/browser.ts  each dot's Chrome profile, computer-use actions, the live view you can take over
   composio.ts          Composio sign-in and app connections

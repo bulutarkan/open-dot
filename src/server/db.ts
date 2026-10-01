@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 CREATE INDEX IF NOT EXISTS messages_dot ON messages(dot_id, created_at);
 CREATE TABLE IF NOT EXISTS rules (id TEXT PRIMARY KEY, dot_id TEXT, action TEXT NOT NULL, decision TEXT NOT NULL, created_at INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS memories (id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, text TEXT NOT NULL, created_at INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS memories (
+  id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, text TEXT NOT NULL, importance REAL NOT NULL DEFAULT 0.65,
+  access_count INTEGER NOT NULL DEFAULT 0, last_accessed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS skills (id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL, body TEXT NOT NULL, created_at INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS routines (
   id TEXT PRIMARY KEY, dot_id TEXT NOT NULL, name TEXT NOT NULL, instruction TEXT NOT NULL, schedule TEXT NOT NULL,
@@ -82,6 +85,62 @@ function migrate(conn: DatabaseSync) {
         .run(convId, d.id, "First chat", d.thread, d.pending, span.a, span.b);
       conn.prepare("UPDATE messages SET conversation_id = ? WHERE dot_id = ? AND channel_id IS NULL").run(convId, d.id);
     }
+  }
+
+  const memCols = conn.prepare("PRAGMA table_info(memories)").all().map((c) => (c as { name: string }).name);
+  if (!memCols.includes("importance")) conn.exec("ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.65");
+  if (!memCols.includes("access_count")) conn.exec("ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0");
+  if (!memCols.includes("last_accessed_at")) conn.exec("ALTER TABLE memories ADD COLUMN last_accessed_at INTEGER");
+  if (!memCols.includes("updated_at")) {
+    conn.exec("ALTER TABLE memories ADD COLUMN updated_at INTEGER");
+    conn.exec("UPDATE memories SET updated_at = created_at WHERE updated_at IS NULL");
+  }
+  conn.exec("CREATE INDEX IF NOT EXISTS memories_dot_updated ON memories(dot_id, updated_at)");
+
+  // Memory v2: local full-text indexes over durable memories and prior chat turns.
+  // These stay in SQLite and require no external vector service.
+  conn.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+      id UNINDEXED, dot_id UNINDEXED, text, tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
+      id UNINDEXED, dot_id UNINDEXED, conversation_id UNINDEXED, role UNINDEXED, text, created_at UNINDEXED,
+      tokenize='unicode61 remove_diacritics 2'
+    );
+
+    CREATE TRIGGER IF NOT EXISTS memory_fts_ai AFTER INSERT ON memories BEGIN
+      INSERT INTO memory_fts(id, dot_id, text) VALUES (new.id, new.dot_id, new.text);
+    END;
+    CREATE TRIGGER IF NOT EXISTS memory_fts_ad AFTER DELETE ON memories BEGIN
+      DELETE FROM memory_fts WHERE id = old.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS memory_fts_au AFTER UPDATE OF text, dot_id ON memories BEGIN
+      DELETE FROM memory_fts WHERE id = old.id;
+      INSERT INTO memory_fts(id, dot_id, text) VALUES (new.id, new.dot_id, new.text);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS message_fts_ai AFTER INSERT ON messages
+    WHEN new.role IN ('user', 'dot') AND length(trim(new.text)) > 0 BEGIN
+      INSERT INTO message_fts(id, dot_id, conversation_id, role, text, created_at)
+      VALUES (new.id, new.dot_id, new.conversation_id, new.role, new.text, new.created_at);
+    END;
+    CREATE TRIGGER IF NOT EXISTS message_fts_ad AFTER DELETE ON messages BEGIN
+      DELETE FROM message_fts WHERE id = old.id;
+    END;
+    CREATE TRIGGER IF NOT EXISTS message_fts_au AFTER UPDATE OF text, role, dot_id, conversation_id ON messages BEGIN
+      DELETE FROM message_fts WHERE id = old.id;
+      INSERT INTO message_fts(id, dot_id, conversation_id, role, text, created_at)
+      SELECT new.id, new.dot_id, new.conversation_id, new.role, new.text, new.created_at
+      WHERE new.role IN ('user', 'dot') AND length(trim(new.text)) > 0;
+    END;
+  `);
+
+  const ftsVersion = conn.prepare("SELECT value FROM settings WHERE key = 'memory_fts_version'").get() as { value?: string } | undefined;
+  if (ftsVersion?.value !== "2") {
+    conn.exec("DELETE FROM memory_fts; DELETE FROM message_fts;");
+    conn.exec("INSERT INTO memory_fts(id, dot_id, text) SELECT id, dot_id, text FROM memories WHERE length(trim(text)) > 0");
+    conn.exec("INSERT INTO message_fts(id, dot_id, conversation_id, role, text, created_at) SELECT id, dot_id, conversation_id, role, text, created_at FROM messages WHERE role IN ('user', 'dot') AND length(trim(text)) > 0");
+    conn.prepare("INSERT INTO settings(key, value) VALUES ('memory_fts_version', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   }
 }
 

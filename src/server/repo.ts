@@ -384,21 +384,91 @@ export function deleteRule(ruleId: string) {
 
 // ---------- memories ----------
 
-const toMemory = (r: Row): Memory => ({ id: r.id as string, dotId: r.dot_id as string, text: r.text as string, createdAt: r.created_at as number });
+const toMemory = (r: Row): Memory => ({
+  id: r.id as string,
+  dotId: r.dot_id as string,
+  text: r.text as string,
+  importance: Number(r.importance ?? 0.65),
+  accessCount: Number(r.access_count ?? 0),
+  lastAccessedAt: r.last_accessed_at == null ? null : Number(r.last_accessed_at),
+  createdAt: Number(r.created_at),
+  updatedAt: Number(r.updated_at ?? r.created_at),
+});
+
+const memoryNorm = (text: string) =>
+  text.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+
+function memorySimilarity(a: string, b: string): number {
+  const na = memoryNorm(a);
+  const nb = memoryNorm(b);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  if ((na.includes(nb) || nb.includes(na)) && Math.min(na.length, nb.length) >= 12) return 0.9;
+  const aa = new Set(na.split(/\s+/).filter((x) => x.length > 1));
+  const bb = new Set(nb.split(/\s+/).filter((x) => x.length > 1));
+  if (!aa.size || !bb.size) return 0;
+  let intersection = 0;
+  for (const token of aa) if (bb.has(token)) intersection++;
+  return intersection / (aa.size + bb.size - intersection);
+}
 
 export function listMemories(dotId?: string): Memory[] {
   const q = dotId
-    ? db().prepare("SELECT * FROM memories WHERE dot_id = ? ORDER BY created_at").all(dotId)
-    : db().prepare("SELECT * FROM memories ORDER BY created_at").all();
+    ? db().prepare("SELECT * FROM memories WHERE dot_id = ? ORDER BY updated_at, created_at").all(dotId)
+    : db().prepare("SELECT * FROM memories ORDER BY updated_at, created_at").all();
   return q.map(toMemory);
 }
 
-export function addMemory(dotId: string, text: string): Memory {
+export function getMemory(memId: string): Memory | null {
+  const row = db().prepare("SELECT * FROM memories WHERE id = ?").get(memId);
+  return row ? toMemory(row) : null;
+}
+
+/** Save a durable fact, consolidating obvious duplicates instead of growing the memory list forever. */
+export function addMemory(dotId: string, text: string, importance = 0.65): Memory {
+  const clean = text.trim();
+  const candidates = db().prepare("SELECT * FROM memories WHERE dot_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 200").all(dotId).map(toMemory);
+  let best: Memory | null = null;
+  let bestScore = 0;
+  for (const candidate of candidates) {
+    const score = memorySimilarity(candidate.text, clean);
+    if (score > bestScore) { best = candidate; bestScore = score; }
+  }
+  if (best && bestScore >= 0.82) {
+    const ts = now();
+    db().prepare("UPDATE memories SET text = ?, importance = MAX(importance, ?), updated_at = ? WHERE id = ?")
+      .run(clean, Math.max(0, Math.min(1, importance)), ts, best.id);
+    const memory = getMemory(best.id)!;
+    emit({ type: "memory", data: memory });
+    return memory;
+  }
+
   const memId = id("mem");
-  db().prepare("INSERT INTO memories (id, dot_id, text, created_at) VALUES (?, ?, ?, ?)").run(memId, dotId, text, now());
-  const mem = toMemory(db().prepare("SELECT * FROM memories WHERE id = ?").get(memId)!);
-  emit({ type: "memory", data: mem });
-  return mem;
+  const ts = now();
+  db().prepare("INSERT INTO memories (id, dot_id, text, importance, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)")
+    .run(memId, dotId, clean, Math.max(0, Math.min(1, importance)), ts, ts);
+  const memory = getMemory(memId)!;
+  emit({ type: "memory", data: memory });
+  return memory;
+}
+
+export function updateMemory(memId: string, text: string, importance?: number): Memory | null {
+  const existing = getMemory(memId);
+  if (!existing) return null;
+  const clean = text.trim();
+  if (!clean) return existing;
+  const nextImportance = importance == null ? existing.importance : Math.max(0, Math.min(1, importance));
+  db().prepare("UPDATE memories SET text = ?, importance = ?, updated_at = ? WHERE id = ?").run(clean, nextImportance, now(), memId);
+  const memory = getMemory(memId);
+  if (memory) emit({ type: "memory", data: memory });
+  return memory;
+}
+
+export function touchMemories(ids: string[]) {
+  if (!ids.length) return;
+  const ts = now();
+  const stmt = db().prepare("UPDATE memories SET access_count = access_count + 1, last_accessed_at = ? WHERE id = ?");
+  for (const memoryId of [...new Set(ids)]) stmt.run(ts, memoryId);
 }
 
 export function deleteMemory(memId: string) {

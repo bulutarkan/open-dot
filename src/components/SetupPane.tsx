@@ -155,7 +155,7 @@ export default function SetupPane({ dot }: { dot: Dot }) {
           <DotTriggers dot={dot} />
         </Section>
 
-        <Section eyebrow="Memory" title={`What ${dot.name} remembers`} description={`Private to ${dot.name}; it adds to this as you work together. Universal information about you lives in Settings.`}>
+        <Section eyebrow="Memory" title={`${dot.name}'s long-term memory`} description={`Private to ${dot.name}. Relevant durable memories and older chats are retrieved when needed; universal information about you lives in Settings.`}>
           <div className="space-y-3">
             {memories.length > 0 ? (
               <div className="surface divide-y divide-black/[0.06]">

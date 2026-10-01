@@ -15,10 +15,9 @@ export type Trigger =
 
 const decisionText = { allow: "do it without asking", ask: "ask first (request_approval)", never: "never do it" } as const;
 
-export function systemPrompt(dot: Dot, trigger: Trigger): string {
+export function systemPrompt(dot: Dot, trigger: Trigger, memoryContext = ""): string {
   const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const rules = repo.rulesFor(dot.id);
-  const memories = repo.listMemories(dot.id);
   const skills = repo.listSkills(dot.id);
   const routines = repo.listRoutines(dot.id);
   const others = repo.listDots().filter((d) => d.id !== dot.id);
@@ -52,9 +51,9 @@ ${
 # Passwords
 ${sites.length ? `Saved logins exist for: ${sites.join(", ")}. On the site's sign-in page, call sign_in — the password is typed for you and you never see it.` : "No saved logins yet."} Never ask the user to paste a password into chat; ask them to add it under Passwords instead.
 
-# This dot's memory
-${memories.length ? memories.map((m) => `- [${m.id}] ${m.text}`).join("\n") : "(empty)"}
-Use remember for durable facts and preferences this dot should retain (not transient task details). This memory is private to this dot; the universal USER.md profile is user-managed in Settings. Use forget for outdated ones.
+# This dot's long-term memory
+${memoryContext || "(No relevant long-term memory was retrieved for this turn.)"}
+This is a bounded, relevant slice of this dot's durable memory and older conversations, not the whole archive. The universal USER.md profile above is user-managed and separate. If the user refers to something from the past that is missing, call search_memory with concise or translated keywords before answering. Before saving a fact that may already exist, search memory first; use update_memory to consolidate an existing fact instead of creating duplicates. Use remember only for durable facts/preferences this dot should retain, and forget for outdated ones.
 
 # Skills
 ${skills.length ? skills.map((k) => `- ${k.name}: ${k.description}`).join("\n") + "\nCall use_skill to load one before doing that task." : "(none yet)"}
