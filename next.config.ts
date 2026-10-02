@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
+const allowedDevOrigins = process.env.DOTS_ALLOWED_DEV_ORIGINS
+  ?.split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
+  ...(allowedDevOrigins?.length ? { allowedDevOrigins } : {}),
   // The desktop app ships .next/standalone: a minimal server.js plus only the node_modules it needs.
   output: "standalone",
   // Runtime data is found through process.cwd(), so tracing would copy it in. It must never ship.
