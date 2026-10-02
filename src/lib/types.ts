@@ -160,6 +160,10 @@ export type ComputerInfo = {
   chatgpt: { connected: boolean; sharing: boolean; email: string | null; name: string | null };
   cloudKey: "env" | "settings" | null; // E2B key for cloud computers
   openRouter: "env" | "settings" | null; // OpenRouter key for open models
+  openCode: {
+    go: { source: "settings" | "cli" | "env" | null; enabled: boolean };
+    zen: { source: "settings" | "cli" | "env" | null; enabled: boolean };
+  };
   triggersKey: "env" | "settings" | null; // Composio API key for triggers
   sky: boolean; // OpenAI's Sky computer-use runtime is installed on this Mac
   composio: boolean; // COMPOSIO_API_KEY is set

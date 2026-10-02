@@ -11,13 +11,14 @@ import {
   isChatGPTModel,
 } from "./chatgpt";
 import { isOpenRouterModel, openModels, openRouterId, openRouterKey, openrouter, preferredOpenModel, smallOpenModel } from "./openrouter";
+import { isOpenCodeModel, openCodeClient, openCodeEnabled, openCodeModelId, openCodeModels, openCodeProduct, preferredOpenCodeModel, smallOpenCodeModel } from "./opencode";
 
 // Models are chosen from every provider the user connected. Precedence for a dot's model:
 // the dot's own choice → the default picked in Settings → best available provider/model.
 const MAIN_PREFERENCE = ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4", "gpt-5.2", "gpt-5.1", "gpt-5"];
 const REVIEW_PREFERENCE = ["gpt-6-luna", "gpt-5.6-luna", "gpt-5.4-mini", "gpt-5-mini", "gpt-5.4-nano", "gpt-5-nano", "gpt-4.1-mini"];
 
-export type ModelProvider = "openai" | "chatgpt" | "openrouter";
+export type ModelProvider = "openai" | "chatgpt" | "opencode" | "openrouter";
 export type ModelClient = { client: OpenAI; model: string; stateless: boolean; provider: ModelProvider };
 
 const g = globalThis as unknown as {
@@ -116,12 +117,27 @@ async function resolveChatGPT(): Promise<{ main: string; review: string; availab
   return { main: available[0], review, available };
 }
 
-/** API-key OpenAI first (preserves existing behavior), then ChatGPT-plan models, then OpenRouter. */
+async function resolveOpenCode(): Promise<{ main: string; review: string; available: string[] } | null> {
+  if (!openCodeEnabled()) return null;
+  const available = await openCodeModels();
+  if (!available.length) return null;
+  return {
+    main: preferredOpenCodeModel(available) ?? available[0],
+    review: smallOpenCodeModel(available) ?? available[0],
+    available,
+  };
+}
+
+/** API-key OpenAI first, then ChatGPT plan, OpenCode, and finally OpenRouter. */
 async function resolve() {
-  const [oa, chatgpt, open] = await Promise.all([
+  const [oa, chatgpt, opencode, open] = await Promise.all([
     resolveOpenAI(),
     resolveChatGPT().catch((err) => {
       console.warn("[dots] couldn't list ChatGPT-plan models:", err instanceof Error ? err.message : err);
+      return null;
+    }),
+    resolveOpenCode().catch((err) => {
+      console.warn("[dots] couldn't list OpenCode models:", err instanceof Error ? err.message : err);
       return null;
     }),
     openModels().catch((err) => {
@@ -130,9 +146,9 @@ async function resolve() {
     }),
   ]);
   const resolved = {
-    main: oa?.main ?? chatgpt?.main ?? (open.length ? preferredOpenModel(open) : process.env.DOTS_MODEL || MAIN_PREFERENCE[0]),
-    review: oa?.review ?? chatgpt?.review ?? (open.length ? smallOpenModel(open) : process.env.DOTS_REVIEW_MODEL || REVIEW_PREFERENCE[0]),
-    available: [...(oa?.available ?? []), ...(chatgpt?.available ?? []), ...open],
+    main: oa?.main ?? chatgpt?.main ?? opencode?.main ?? (open.length ? preferredOpenModel(open) : process.env.DOTS_MODEL || MAIN_PREFERENCE[0]),
+    review: oa?.review ?? chatgpt?.review ?? opencode?.review ?? (open.length ? smallOpenModel(open) : process.env.DOTS_REVIEW_MODEL || REVIEW_PREFERENCE[0]),
+    available: [...(oa?.available ?? []), ...(chatgpt?.available ?? []), ...(opencode?.available ?? []), ...open],
   };
   g.__dotsResolved = resolved;
   console.log(`[dots] default ${resolved.main} (agent), ${resolved.review} (rule review); ${resolved.available.length} models available`);
@@ -149,6 +165,7 @@ export function resetModels() {
 export async function clientFor(model: string): Promise<ModelClient> {
   if (isOpenRouterModel(model)) return { client: openrouter(), model: openRouterId(model), stateless: true, provider: "openrouter" };
   if (isChatGPTModel(model)) return { client: await chatGPTClient(), model: chatGPTModelId(model), stateless: true, provider: "chatgpt" };
+  if (isOpenCodeModel(model)) return { client: openCodeClient(model), model: openCodeModelId(model), stateless: true, provider: "opencode" };
   return { client: openai(), model, stateless: false, provider: "openai" };
 }
 
@@ -187,7 +204,7 @@ export async function completedResponse(
 
 /** True when any model provider is set up. */
 export function canThink(): boolean {
-  return hasKey() || chatGPTStatus().sharing || Boolean(openRouterKey());
+  return hasKey() || chatGPTStatus().sharing || openCodeEnabled() || Boolean(openRouterKey());
 }
 
 export function models(): Promise<{ main: string; review: string; available: string[] }> {
@@ -200,6 +217,7 @@ export function models(): Promise<{ main: string; review: string; available: str
 
 function providerAvailable(model: string): boolean {
   if (isChatGPTModel(model)) return chatGPTStatus().sharing;
+  if (isOpenCodeModel(model)) return openCodeEnabled(openCodeProduct(model));
   if (isOpenRouterModel(model)) return Boolean(openRouterKey());
   return hasKey();
 }
@@ -220,7 +238,7 @@ export function knownModels(): { main: string; review: string; available: string
 
 /** API-key gpt-5.x / gpt-6 / o-series accept `reasoning`; ChatGPT-plan preview requests keep the minimal supported field set. */
 export function isReasoningModel(model: string): boolean {
-  return !isOpenRouterModel(model) && !isChatGPTModel(model) && /^(gpt-[5-9]|o[1-9])/.test(model) && !/chat/.test(model);
+  return !isOpenRouterModel(model) && !isChatGPTModel(model) && !isOpenCodeModel(model) && /^(gpt-[5-9]|o[1-9])/.test(model) && !/chat/.test(model);
 }
 
 /** OpenAI's GA computer tool needs a recent API model; ChatGPT-plan preview currently uses Open Dot's own browser tools instead. */

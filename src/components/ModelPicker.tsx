@@ -6,13 +6,17 @@ import { useStore } from "@/lib/store";
 
 const OPEN = "openrouter:";
 const CHATGPT = "chatgpt:";
-const label = (id: string) => (id.startsWith(OPEN) ? id.slice(OPEN.length) : id.startsWith(CHATGPT) ? id.slice(CHATGPT.length) : id);
-const provider = (id: string) => (id.startsWith(OPEN) ? "openrouter" : id.startsWith(CHATGPT) ? "chatgpt" : "openai");
-const providerLabel = (id: string) => (provider(id) === "openrouter" ? "Open models" : provider(id) === "chatgpt" ? "ChatGPT plan" : "OpenAI API");
+const OPENCODE_GO = "opencode-go:";
+const OPENCODE_ZEN = "opencode-zen:";
+const label = (id: string) => id.startsWith(OPEN) ? id.slice(OPEN.length) : id.startsWith(CHATGPT) ? id.slice(CHATGPT.length) : id.startsWith(OPENCODE_GO) ? id.slice(OPENCODE_GO.length) : id.startsWith(OPENCODE_ZEN) ? id.slice(OPENCODE_ZEN.length) : id;
+const provider = (id: string) => id.startsWith(OPEN) ? "openrouter" : id.startsWith(CHATGPT) ? "chatgpt" : id.startsWith(OPENCODE_GO) ? "opencode-go" : id.startsWith(OPENCODE_ZEN) ? "opencode-zen" : "openai";
+const providerLabel = (id: string) => provider(id) === "openrouter" ? "OpenRouter" : provider(id) === "chatgpt" ? "ChatGPT plan" : provider(id) === "opencode-go" ? "OpenCode Go" : provider(id) === "opencode-zen" ? "OpenCode Zen" : "OpenAI API";
 
 function hint(id: string): string | null {
   if (id.startsWith(OPEN)) return "Open model · OpenRouter";
   if (id.startsWith(CHATGPT)) return "ChatGPT plan";
+  if (id.startsWith(OPENCODE_GO)) return "OpenCode Go subscription";
+  if (id.startsWith(OPENCODE_ZEN)) return "OpenCode Zen · pay as you go";
   if (/-pro\b/.test(id)) return "Strongest · slower";
   if (/-nano\b/.test(id)) return "Fastest · cheapest";
   if (/-mini\b/.test(id)) return "Fast · cheaper";
