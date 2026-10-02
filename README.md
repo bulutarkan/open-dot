@@ -69,6 +69,7 @@ In development everything is stored in `.data/` in the project folder.
 - Routines and triggers only run while the app is open. A routine that comes due while your Mac is asleep gets skipped, and so do trigger events that arrive then.
 - Most triggers fire within seconds. Ones with an Interval setting, like Gmail's, can take up to that many minutes.
 - Open models don't get OpenAI's computer tool. They click and type by the text on the page instead, which works on most sites but not on things drawn on a canvas. Voice calls still need an OpenAI key.
+- Long-term chat retrieval uses SQLite FTS5 `unicode61` as a zero-service baseline. Languages without whitespace word boundaries (notably CJK) have limited lexical recall today; `search_memory` can retry with alternate/entity terms, and the retrieval layer is isolated so a trigram/vector scorer can be added later.
 - For bookings and purchases, the site needs a card saved in your account there, or you take over for the payment step.
 - Open Dot isn't affiliated with OpenAI.
 

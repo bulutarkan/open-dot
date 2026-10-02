@@ -174,7 +174,7 @@ export async function resolveCard(messageId: string, choice: "approve" | "deny" 
     if (await processCalls(dot, pending, signal)) return;
     const latestUser = repo.conversationMessages(convId, 30).filter((m) => m.role === "user" && m.text).at(-1)?.text ?? card.title;
     const memoryCtx = retrieveMemoryContext(dot.id, latestUser, convId, dot.name);
-    await drive(dot, pending.responseId, pending.outputs, pending.trigger, signal, memoryCtx);
+    await drive(dot, pending.responseId, pending.outputs, pending.trigger, signal, memoryCtx.durable);
   });
 }
 
@@ -243,6 +243,10 @@ function notifyFinished(dot: Dot, since: number) {
   emit({ type: "notify", dotId: dot.id, title: last.role === "card" ? `${dot.name} needs you` : dot.name, body: body.slice(0, 160) });
 }
 
+function historicalMemoryInput(history: string | null): ResponseInputItem[] {
+  return history ? [{ role: "assistant", content: history }] : [];
+}
+
 async function turn(dotId: string, text: string, trigger: Trigger, signal: AbortSignal, attachments: Attachment[], conversationId: string) {
   repo.routeToConversation(dotId, conversationId);
   repo.routeToChannel(dotId, trigger.kind === "channel" ? trigger.channelId : null);
@@ -264,9 +268,10 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
   }
   const { stateless } = clientFor(await modelFor(dot.model));
   if (!fresh && (stateless ? !repo.getHistory(dotId).length : !thread)) input.unshift(...rebuildContext(dotId, text));
-  input.push(userInput(text, attachments));
   const memoryCtx = retrieveMemoryContext(dot.id, text, conversationId, dot.name);
-  await drive(dot, thread, input, trigger, signal, memoryCtx);
+  input.push(...historicalMemoryInput(memoryCtx.history));
+  input.push(userInput(text, attachments));
+  await drive(dot, thread, input, trigger, signal, memoryCtx.durable);
 }
 
 async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal, memoryCtx: string) {
@@ -370,7 +375,10 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
     for (const d of drafts.values()) repo.updateMessage(d.id, { text: d.text || "…" });
   }
   if (!final) throw new Error("The model stream ended unexpectedly");
-  if (stateless) repo.setHistory(dot.id, trimHistory([...history, ...input, ...replayable(final.output)]));
+  if (stateless) {
+    const persistentInput = input.filter((item) => !("role" in item && item.role === "assistant" && typeof item.content === "string" && item.content.startsWith("<retrieved_history>")));
+    repo.setHistory(dot.id, trimHistory([...history.filter((item) => !("role" in item && item.role === "assistant" && typeof item.content === "string" && item.content.startsWith("<retrieved_history>"))), ...persistentInput, ...replayable(final.output)]));
+  }
   return final;
 }
 
@@ -549,8 +557,8 @@ setConsult(async (target, message, from, _depth, signal) => {
     const res = await client.responses.create(
       {
         model,
-        instructions: systemPrompt(target, { kind: "dot", from: from.name }, targetMemory),
-        input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
+        instructions: systemPrompt(target, { kind: "dot", from: from.name }, targetMemory.durable),
+        input: [...rebuildContext(target.id, message).slice(-12), ...historicalMemoryInput(targetMemory.history), { role: "user", content: `${from.name} asks: ${message}` }],
         tools: [stateless ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" }],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },
