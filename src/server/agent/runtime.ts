@@ -296,7 +296,8 @@ async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[]
   repo.addMessage({ dotId: dot.id, role: "system", text: `Stopped after ${MAX_STEPS} steps. Say "continue" to keep going.` });
 }
 
-function webSearchTool(target: ModelClient): Tool {
+function webSearchTool(target: ModelClient): Tool | null {
+  if (target.provider === "opencode") return null;
   return target.provider === "openrouter" ? ({ type: "openrouter:web_search" } as unknown as Tool) : { type: "web_search" };
 }
 
@@ -306,7 +307,7 @@ function modelTools(dot: Dot, target: ModelClient): Tool[] {
     name: t.name,
     description: t.description,
     parameters: t.parameters,
-    strict: target.provider !== "openrouter" && t.strict !== false,
+    strict: target.provider !== "openrouter" && target.provider !== "opencode" && t.strict !== false,
   }));
 
   // ChatGPT-plan token sharing accepts client-side function tools under a namespace.
@@ -319,11 +320,12 @@ function modelTools(dot: Dot, target: ModelClient): Tool[] {
         description: "Tools provided by Open Dot for apps, files, browsers, computers, approvals, and delegation.",
         tools: functions,
       } as Tool,
-      webSearchTool(target),
+      webSearchTool(target)!,
     ];
   }
 
-  const tools: Tool[] = [...functions, webSearchTool(target)];
+  const search = webSearchTool(target);
+  const tools: Tool[] = search ? [...functions, search] : [...functions];
   if (target.provider === "openai" && COMPUTER_ENABLED && supportsComputerTool(target.model)) tools.push({ type: "computer" } as Tool);
   return tools;
 }
@@ -362,7 +364,9 @@ async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem
             store: true,
             stream: true,
           },
-    { signal },
+    target.provider === "opencode"
+      ? { signal, headers: { "User-Agent": "open-dot/0.1.0", "x-opencode-session": repo.currentConversation(dot.id) } }
+      : { signal },
   );
 
   const drafts = new Map<string, { id: string; text: string }>();
@@ -603,7 +607,7 @@ setConsult(async (target, message, from, _depth, signal) => {
         model,
         instructions: systemPrompt(target, { kind: "dot", from: from.name }, targetMemory),
         input: [...rebuildContext(target.id, message).slice(-12), { role: "user", content: `${from.name} asks: ${message}` }],
-        tools: [webSearchTool(modelTarget)],
+        tools: webSearchTool(modelTarget) ? [webSearchTool(modelTarget)!] : [],
         ...(stateless ? { store: false } : isReasoningModel(model) ? { reasoning: { effort: "low" as const } } : {}),
       },
       signal,

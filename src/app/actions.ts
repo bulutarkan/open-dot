@@ -10,6 +10,7 @@ import { computerInfo } from "@/server/snapshot";
 import { models, resetModels, saveApiKey } from "@/server/agent/client";
 import { disconnectChatGPT, startChatGPTSignIn } from "@/server/agent/chatgpt";
 import { saveOpenRouterKey } from "@/server/agent/openrouter";
+import { saveOpenCodeProduct } from "@/server/agent/opencode";
 import * as triggers from "@/server/triggers";
 import * as composio from "@/server/composio";
 import * as voice from "@/server/voice";
@@ -215,6 +216,16 @@ export async function signOutChatGPT(): Promise<string | null> {
 /** Paste an OpenRouter key in Settings to add open models (empty removes it). */
 export async function setOpenRouterKey(key: string): Promise<string | null> {
   const err = await saveOpenRouterKey(key.trim());
+  if (err) return err;
+  resetModels();
+  emit({ type: "computer", data: computerInfo() });
+  void models().then(() => emit({ type: "computer", data: computerInfo() })).catch(() => {});
+  return null;
+}
+
+/** Configure one OpenCode product. Go and Zen may use different credentials. */
+export async function setOpenCodeProduct(product: "go" | "zen", key: string, enabled: boolean, removeKey = false): Promise<string | null> {
+  const err = await saveOpenCodeProduct(product, key.trim(), enabled, removeKey);
   if (err) return err;
   resetModels();
   emit({ type: "computer", data: computerInfo() });
