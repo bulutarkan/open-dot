@@ -9,7 +9,7 @@ import { openAfter } from "@/lib/popup";
 import { Empty, PageHeader, RemoveButton, RuleEditor, Section } from "./SettingsKit";
 import ModelPicker from "./ModelPicker";
 import { TriggersKey } from "./Triggers";
-import { USER_PROFILE_FILE, USER_PROFILE_MAX_CHARS } from "@/lib/user-profile";
+import { USER_PROFILE_FILE, USER_PROFILE_MAX_CHARS, userProfileLength } from "@/lib/user-profile";
 
 const noop = () => () => {};
 const notificationPermission = () => ("Notification" in window ? Notification.permission : "unsupported");
@@ -131,16 +131,29 @@ export default function SettingsView() {
 
 function UserProfile() {
   const saved = useStore((s) => s.userProfile);
+  const version = useStore((s) => s.userProfileVersion);
+  const warning = useStore((s) => s.userProfileWarning);
   const loaded = useStore((s) => s.loaded);
-  return <UserProfileEditor key={`${loaded}:${saved}`} saved={saved} />;
+  return <UserProfileEditor key={loaded ? "loaded" : "loading"} saved={saved} version={version} warning={warning} />;
 }
 
-function UserProfileEditor({ saved }: { saved: string }) {
+function UserProfileEditor({ saved, version, warning }: { saved: string; version: string | null; warning: string | null }) {
   const [draft, setDraft] = useState(saved);
+  const [baseSaved, setBaseSaved] = useState(saved);
+  const [baseVersion, setBaseVersion] = useState(version);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
-  const dirty = draft.trim() !== saved.trim();
-  const tooLong = draft.trim().length > USER_PROFILE_MAX_CHARS;
+  const dirty = draft.trim() !== baseSaved.trim();
+  const count = userProfileLength(draft.trim());
+  const tooLong = count > USER_PROFILE_MAX_CHARS;
+  const changedElsewhere = version !== baseVersion;
+
+  const reloadLatest = () => {
+    setDraft(saved);
+    setBaseSaved(saved);
+    setBaseVersion(version);
+    setError(null);
+  };
 
   return (
     <Section
@@ -161,16 +174,30 @@ function UserProfileEditor({ saved }: { saved: string }) {
             Saved locally as <code className="font-mono">{USER_PROFILE_FILE}</code>. Don&apos;t put passwords or secrets here.
           </span>
           <span className={`ml-auto font-mono text-[11px] ${tooLong ? "text-destructive" : "text-foreground/40"}`}>
-            {draft.trim().length.toLocaleString()} / {USER_PROFILE_MAX_CHARS.toLocaleString()}
+            {count.toLocaleString()} / {USER_PROFILE_MAX_CHARS.toLocaleString()}
           </span>
+          {changedElsewhere && (
+            <button className="btn-secondary h-8 px-3 text-[13px]" disabled={pending} onClick={reloadLatest}>
+              Reload latest
+            </button>
+          )}
           <button
             className="btn-primary h-8 px-3 text-[13px]"
             disabled={!dirty || tooLong || pending}
-            onClick={() => start(async () => setError(await setUserProfile(draft)))}
+            onClick={() => start(async () => {
+              const result = await setUserProfile(draft, baseVersion);
+              setError(result.error);
+              if (!result.error) {
+                const clean = draft.trim();
+                setBaseSaved(clean);
+                setBaseVersion(result.version);
+              }
+            })}
           >
             {pending ? "Saving…" : dirty ? "Save profile" : "Saved"}
           </button>
         </div>
+        {(warning || changedElsewhere) && <p className="text-caption text-warning">{warning ?? "USER.md changed elsewhere. Reload the latest version before saving over it."}</p>}
         {error && <p className="text-caption text-destructive">{error}</p>}
       </div>
     </Section>

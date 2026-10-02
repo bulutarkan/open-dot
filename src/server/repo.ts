@@ -401,21 +401,39 @@ const toMemory = (r: Row): Memory => ({
   updatedAt: Number(r.updated_at ?? r.created_at),
 });
 
+export const MEMORY_MAX_CHARS = 1_000;
+
+const memoryText = (text: string) => Array.from(text.trim()).slice(0, MEMORY_MAX_CHARS).join("");
 const memoryNorm = (text: string) =>
   text.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+const memoryTokens = (text: string) => new Set(memoryNorm(text).split(/\s+/).filter((x) => x.length > 1));
 
 function memorySimilarity(a: string, b: string): number {
   const na = memoryNorm(a);
   const nb = memoryNorm(b);
   if (!na || !nb) return 0;
   if (na === nb) return 1;
-  if ((na.includes(nb) || nb.includes(na)) && Math.min(na.length, nb.length) >= 12) return 0.9;
-  const aa = new Set(na.split(/\s+/).filter((x) => x.length > 1));
-  const bb = new Set(nb.split(/\s+/).filter((x) => x.length > 1));
+  const aa = memoryTokens(a);
+  const bb = memoryTokens(b);
   if (!aa.size || !bb.size) return 0;
   let intersection = 0;
   for (const token of aa) if (bb.has(token)) intersection++;
+  const smaller = Math.min(aa.size, bb.size);
+  // Only merge textual containment when the complete smaller fact has enough semantic tokens.
+  // This avoids substring accidents such as "likes tea" vs "likes team sports".
+  if (smaller >= 3 && intersection === smaller) return 0.95;
   return intersection / (aa.size + bb.size - intersection);
+}
+
+function memoryRichness(text: string): [number, number] {
+  return [memoryTokens(text).size, Array.from(text.trim()).length];
+}
+
+function richerMemoryText(a: string, b: string): string {
+  const ra = memoryRichness(a);
+  const rb = memoryRichness(b);
+  if (rb[0] !== ra[0]) return rb[0] > ra[0] ? b : a;
+  return rb[1] > ra[1] ? b : a;
 }
 
 export function listMemories(dotId?: string): Memory[] {
@@ -431,8 +449,8 @@ export function getMemory(memId: string): Memory | null {
 }
 
 /** Save a durable fact, consolidating obvious duplicates instead of growing the memory list forever. */
-export function addMemory(dotId: string, text: string, importance = 0.65): Memory {
-  const clean = text.trim();
+export function addMemory(dotId: string, text: string, importance = 0.75): Memory {
+  const clean = memoryText(text);
   const candidates = db().prepare("SELECT * FROM memories WHERE dot_id = ? ORDER BY updated_at DESC, created_at DESC LIMIT 200").all(dotId).map(toMemory);
   let best: Memory | null = null;
   let bestScore = 0;
@@ -442,8 +460,9 @@ export function addMemory(dotId: string, text: string, importance = 0.65): Memor
   }
   if (best && bestScore >= 0.82) {
     const ts = now();
+    const mergedText = richerMemoryText(best.text, clean);
     db().prepare("UPDATE memories SET text = ?, importance = MAX(importance, ?), updated_at = ? WHERE id = ?")
-      .run(clean, Math.max(0, Math.min(1, importance)), ts, best.id);
+      .run(mergedText, Math.max(0, Math.min(1, importance)), ts, best.id);
     const memory = getMemory(best.id)!;
     emit({ type: "memory", data: memory });
     return memory;
@@ -461,7 +480,7 @@ export function addMemory(dotId: string, text: string, importance = 0.65): Memor
 export function updateMemory(memId: string, text: string, importance?: number): Memory | null {
   const existing = getMemory(memId);
   if (!existing) return null;
-  const clean = text.trim();
+  const clean = memoryText(text);
   if (!clean) return existing;
   const nextImportance = importance == null ? existing.importance : Math.max(0, Math.min(1, importance));
   db().prepare("UPDATE memories SET text = ?, importance = ?, updated_at = ? WHERE id = ?").run(clean, nextImportance, now(), memId);

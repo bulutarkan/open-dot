@@ -76,6 +76,7 @@ In development everything is stored in `.data/` in the project folder.
 - The ChatGPT model picker starts from the signed-in account catalog and also keeps the current public flagship aliases visible because that catalog can lag during model rollouts. The Responses request is the final availability check for the selected account/workspace.
 - OpenCode Go and Zen expose several model protocols. Open Dot currently offers their Responses and OpenAI-compatible Chat Completions models; Anthropic Messages, Gemini-protocol and other provider-specific models stay hidden until their adapters are supported.
 - Open models don't get OpenAI's computer tool. They click and type by the text on the page instead, which works on most sites but not on things drawn on a canvas.
+- Long-term chat retrieval uses SQLite FTS5 `unicode61` as a zero-service baseline. Languages without whitespace word boundaries (notably CJK) have limited lexical recall today; `search_memory` can retry with alternate/entity terms, and the retrieval layer is isolated so a trigram/vector scorer can be added later.
 - For bookings and purchases, the site needs a card saved in your account there, or you take over for the payment step.
 - Open Dot isn't affiliated with OpenAI.
 

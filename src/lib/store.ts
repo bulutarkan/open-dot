@@ -18,7 +18,7 @@ export type State = Snapshot & {
 };
 
 const EMPTY: State = {
-  userProfile: "",
+  userProfile: "", userProfileVersion: null, userProfileWarning: null,
   dots: [], messages: [], routines: [], triggers: [], rules: [], memories: [], skills: [], passwords: [],
   computer: { mode: "local", docker: false, image: "", model: "", models: [], computerTool: "", hasKey: true, keySource: null, chatgpt: { connected: false, sharing: false, email: null, name: null }, cloudKey: null, openRouter: null, openCode: { go: { source: null, enabled: false }, zen: { source: null, enabled: false } }, triggersKey: null, sky: false, composio: false },
   apps: [],
@@ -88,7 +88,7 @@ function apply(ev: ServerEvent) {
       return;
     }
     case "user_profile":
-      return set({ userProfile: ev.data });
+      return set({ userProfile: ev.data.content, userProfileVersion: ev.data.version, userProfileWarning: ev.data.warning });
     case "dot":
       return set({ dots: upsert(state.dots, ev.data) });
     case "dot_deleted":
