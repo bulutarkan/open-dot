@@ -88,6 +88,8 @@ function migrate(conn: DatabaseSync) {
     }
   }
 
+  conn.exec("CREATE INDEX IF NOT EXISTS messages_conversation_created ON messages(conversation_id, created_at)");
+
   const memCols = conn.prepare("PRAGMA table_info(memories)").all().map((c) => (c as { name: string }).name);
   if (!memCols.includes("importance")) conn.exec("ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.65");
   if (!memCols.includes("access_count")) conn.exec("ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0");
@@ -98,51 +100,60 @@ function migrate(conn: DatabaseSync) {
   }
   conn.exec("CREATE INDEX IF NOT EXISTS memories_dot_updated ON memories(dot_id, updated_at)");
 
-  // Memory v2: local full-text indexes over durable memories and prior chat turns.
-  // These stay in SQLite and require no external vector service.
+  // Memory v3: rowid-keyed local FTS indexes. Rowid deletes/updates avoid scanning an
+  // UNINDEXED string id column. Existing content is rebuilt lazily on first memory search so
+  // a large chat archive does not block the app's first database call after an upgrade.
+  const ftsVersion = conn.prepare("SELECT value FROM settings WHERE key = 'memory_fts_version'").get() as { value?: string } | undefined;
+  const hasV3Schema = ftsVersion?.value === "3" || ftsVersion?.value === "3-pending";
+  if (!hasV3Schema) {
+    conn.exec(`
+      DROP TRIGGER IF EXISTS memory_fts_ai;
+      DROP TRIGGER IF EXISTS memory_fts_ad;
+      DROP TRIGGER IF EXISTS memory_fts_au;
+      DROP TRIGGER IF EXISTS message_fts_ai;
+      DROP TRIGGER IF EXISTS message_fts_ad;
+      DROP TRIGGER IF EXISTS message_fts_au;
+      DROP TABLE IF EXISTS memory_fts;
+      DROP TABLE IF EXISTS message_fts;
+    `);
+  }
   conn.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      id UNINDEXED, dot_id UNINDEXED, text, tokenize='unicode61 remove_diacritics 2'
+      text, tokenize='unicode61 remove_diacritics 2'
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS message_fts USING fts5(
-      id UNINDEXED, dot_id UNINDEXED, conversation_id UNINDEXED, role UNINDEXED, text, created_at UNINDEXED,
-      tokenize='unicode61 remove_diacritics 2'
+      text, tokenize='unicode61 remove_diacritics 2'
     );
 
-    CREATE TRIGGER IF NOT EXISTS memory_fts_ai AFTER INSERT ON memories BEGIN
-      INSERT INTO memory_fts(id, dot_id, text) VALUES (new.id, new.dot_id, new.text);
+    CREATE TRIGGER IF NOT EXISTS memory_fts_ai AFTER INSERT ON memories
+    WHEN length(trim(new.text)) > 0 BEGIN
+      INSERT INTO memory_fts(rowid, text) VALUES (new.rowid, new.text);
     END;
     CREATE TRIGGER IF NOT EXISTS memory_fts_ad AFTER DELETE ON memories BEGIN
-      DELETE FROM memory_fts WHERE id = old.id;
+      DELETE FROM memory_fts WHERE rowid = old.rowid;
     END;
     CREATE TRIGGER IF NOT EXISTS memory_fts_au AFTER UPDATE OF text, dot_id ON memories BEGIN
-      DELETE FROM memory_fts WHERE id = old.id;
-      INSERT INTO memory_fts(id, dot_id, text) VALUES (new.id, new.dot_id, new.text);
+      DELETE FROM memory_fts WHERE rowid = old.rowid;
+      INSERT INTO memory_fts(rowid, text) SELECT new.rowid, new.text WHERE length(trim(new.text)) > 0;
     END;
 
     CREATE TRIGGER IF NOT EXISTS message_fts_ai AFTER INSERT ON messages
     WHEN new.role IN ('user', 'dot') AND length(trim(new.text)) > 0 BEGIN
-      INSERT INTO message_fts(id, dot_id, conversation_id, role, text, created_at)
-      VALUES (new.id, new.dot_id, new.conversation_id, new.role, new.text, new.created_at);
+      INSERT INTO message_fts(rowid, text) VALUES (new.rowid, new.text);
     END;
     CREATE TRIGGER IF NOT EXISTS message_fts_ad AFTER DELETE ON messages BEGIN
-      DELETE FROM message_fts WHERE id = old.id;
+      DELETE FROM message_fts WHERE rowid = old.rowid;
     END;
     CREATE TRIGGER IF NOT EXISTS message_fts_au AFTER UPDATE OF text, role, dot_id, conversation_id ON messages BEGIN
-      DELETE FROM message_fts WHERE id = old.id;
-      INSERT INTO message_fts(id, dot_id, conversation_id, role, text, created_at)
-      SELECT new.id, new.dot_id, new.conversation_id, new.role, new.text, new.created_at
-      WHERE new.role IN ('user', 'dot') AND length(trim(new.text)) > 0;
+      DELETE FROM message_fts WHERE rowid = old.rowid;
+      INSERT INTO message_fts(rowid, text)
+      SELECT new.rowid, new.text WHERE new.role IN ('user', 'dot') AND length(trim(new.text)) > 0;
     END;
   `);
-
-  const ftsVersion = conn.prepare("SELECT value FROM settings WHERE key = 'memory_fts_version'").get() as { value?: string } | undefined;
-  if (ftsVersion?.value !== "2") {
-    conn.exec("DELETE FROM memory_fts; DELETE FROM message_fts;");
-    conn.exec("INSERT INTO memory_fts(id, dot_id, text) SELECT id, dot_id, text FROM memories WHERE length(trim(text)) > 0");
-    conn.exec("INSERT INTO message_fts(id, dot_id, conversation_id, role, text, created_at) SELECT id, dot_id, conversation_id, role, text, created_at FROM messages WHERE role IN ('user', 'dot') AND length(trim(text)) > 0");
-    conn.prepare("INSERT INTO settings(key, value) VALUES ('memory_fts_version', '2') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
+  if (!hasV3Schema) {
+    conn.prepare("INSERT INTO settings(key, value) VALUES ('memory_fts_version', '3-pending') ON CONFLICT(key) DO UPDATE SET value = excluded.value").run();
   }
+
 }
 
 export function getSetting(key: string): string | null {
