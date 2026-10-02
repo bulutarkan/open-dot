@@ -83,7 +83,7 @@ export type Message = {
 };
 
 /** One chat thread with a dot (like a ChatGPT conversation). Memory, skills and rules are shared across them. */
-export type Conversation = { id: string; dotId: string; title: string; createdAt: number; updatedAt: number };
+export type Conversation = { id: string; dotId: string; title: string; model: string | null; createdAt: number; updatedAt: number };
 
 /** A group chat: the user talks to several dots; the lead coordinates and delegates to members. */
 export type Channel = { id: string; name: string; leadId: string; memberIds: string[]; createdAt: number };

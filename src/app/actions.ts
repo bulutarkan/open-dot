@@ -58,8 +58,8 @@ export async function sendMessage(dotId: string, text: string, attachments: Atta
 // ---------- conversations ----------
 
 /** Start a new conversation with its first message. Returns the conversation id. */
-export async function startConversation(dotId: string, text: string, attachments: Attachment[] = []): Promise<string> {
-  const conv = repo.createConversation(dotId);
+export async function startConversation(dotId: string, text: string, attachments: Attachment[] = [], model: string | null = null): Promise<string> {
+  const conv = repo.createConversation(dotId, "New chat", "chat", null, model);
   runtime.sendMessage(dotId, text.trim(), attachments, conv.id);
   void autoTitle(conv.id, text || attachments.map((a) => a.name).join(", "));
   return conv.id;
@@ -67,6 +67,11 @@ export async function startConversation(dotId: string, text: string, attachments
 
 export async function renameConversation(convId: string, title: string) {
   if (title.trim()) repo.renameConversation(convId, title.trim().slice(0, 80));
+}
+
+export async function setConversationModel(convId: string, model: string | null) {
+  repo.setConversationModel(convId, model);
+  repo.resetThread(convId);
 }
 
 export async function deleteConversation(convId: string) {

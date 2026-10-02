@@ -243,6 +243,12 @@ function notifyFinished(dot: Dot, since: number) {
   emit({ type: "notify", dotId: dot.id, title: last.role === "card" ? `${dot.name} needs you` : dot.name, body: body.slice(0, 160) });
 }
 
+
+function activeModel(dot: Dot): string | null {
+  const conversation = repo.getConversation(repo.currentConversation(dot.id));
+  return conversation?.model ?? dot.model;
+}
+
 async function turn(dotId: string, text: string, trigger: Trigger, signal: AbortSignal, attachments: Attachment[], conversationId: string) {
   repo.routeToConversation(dotId, conversationId);
   repo.routeToChannel(dotId, trigger.kind === "channel" ? trigger.channelId : null);
@@ -262,7 +268,7 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
     repo.resetThread(conversationId);
     thread = null;
   }
-  const { stateless } = await clientFor(await modelFor(dot.model));
+  const { stateless } = await clientFor(await modelFor(activeModel(dot)));
   if (!fresh && (stateless ? !repo.getHistory(dotId).length : !thread)) input.unshift(...rebuildContext(dotId, text));
   input.push(userInput(text, attachments));
   const memoryCtx = retrieveMemoryContext(dot.id, text, conversationId, dot.name);
@@ -270,7 +276,7 @@ async function turn(dotId: string, text: string, trigger: Trigger, signal: Abort
 }
 
 async function drive(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal, memoryCtx: string) {
-  const target = await clientFor(await modelFor(dot.model));
+  const target = await clientFor(await modelFor(activeModel(dot)));
   for (let step = 0; step < MAX_STEPS; step++) {
     signal.throwIfAborted();
     let resp: Response;
@@ -332,7 +338,7 @@ function modelTools(dot: Dot, target: ModelClient): Tool[] {
 
 /** Stream one model response, mirroring text into the transcript as it arrives. */
 async function respond(dot: Dot, prevId: string | null, input: ResponseInputItem[], trigger: Trigger, signal: AbortSignal, memoryCtx: string): Promise<Response> {
-  const appModel = await modelFor(dot.model);
+  const appModel = await modelFor(activeModel(dot));
   const target = await clientFor(appModel);
   const { client, model, stateless, provider } = target;
   const tools = modelTools(dot, target);
